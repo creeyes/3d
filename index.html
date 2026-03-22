@@ -12,6 +12,8 @@
         :root {
             --apple-blue: #0071e3;
             --apple-gray: #f5f5f7;
+            --text-primary: #1d1d1f;
+            --text-secondary: #6e6e73;
         }
 
         body {
@@ -21,7 +23,7 @@
             flex-direction: column;
             align-items: center;
             background-color: var(--apple-gray);
-            color: #1d1d1f;
+            color: var(--text-primary);
             padding-bottom: 50px;
         }
 
@@ -43,7 +45,6 @@
             max-width: 800px;
         }
 
-        /* Tarjeta de Producto */
         .card {
             background: white;
             border-radius: 28px;
@@ -59,7 +60,6 @@
             .card { grid-template-columns: 1fr 1fr; }
         }
 
-        /* Visor 3D */
         model-viewer {
             width: 100%;
             height: 400px;
@@ -68,7 +68,6 @@
             overflow: hidden;
         }
 
-        /* Botón Ver en AR (solo aparece en móviles) */
         #ar-button {
             background-color: white;
             border-radius: 8px;
@@ -79,18 +78,17 @@
             position: absolute;
             bottom: 16px;
             right: 16px;
-            display: none; /* Model-viewer lo muestra si hay AR */
+            display: none;
         }
 
-        /* Panel de Información */
         .info {
             display: flex;
             flex-direction: column;
             justify-content: center;
         }
 
-        .price { font-size: 24px; font-weight: 600; color: #1d1d1f; margin-bottom: 10px; }
-        .description { color: #6e6e73; line-height: 1.4; margin-bottom: 20px; }
+        .price { font-size: 24px; font-weight: 600; margin-bottom: 10px; }
+        .description { color: var(--text-secondary); line-height: 1.4; margin-bottom: 20px; }
 
         .btn-buy {
             background-color: var(--apple-blue);
@@ -101,9 +99,11 @@
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
+            transition: background-color 0.2s ease;
         }
+        
+        .btn-buy:hover { background-color: #005bb5; }
 
-        /* Sección del QR (solo para desktop) */
         #qr-section {
             margin-top: 30px;
             text-align: center;
@@ -114,13 +114,40 @@
         }
 
         @media (max-width: 768px) {
-            #qr-section { display: none; } /* Ocultar en móvil */
+            #qr-section { display: none; }
         }
 
         #qrcode { margin-top: 15px; display: flex; justify-content: center; }
+
+        /* Overlay para capturar el Tap en móviles y lanzar el AR */
+        #ar-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            z-index: 9999;
+            display: none; /* Oculto por defecto */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            cursor: pointer;
+        }
+
+        #ar-overlay h2 { margin-bottom: 10px; color: var(--text-primary); }
+        #ar-overlay p { color: var(--text-secondary); margin-bottom: 30px; font-size: 18px; }
     </style>
 </head>
 <body>
+
+    <div id="ar-overlay">
+        <h2>📱 Listo para Realidad Aumentada</h2>
+        <p>Toca en cualquier parte de la pantalla<br>para abrir la cámara.</p>
+        <button class="btn-buy" style="padding: 16px 40px;">Iniciar AR</button>
+    </div>
 
     <header>
         <h2>Tienda de Objetos 3D</h2>
@@ -129,6 +156,7 @@
     <div class="container">
         <div class="card">
             <model-viewer 
+                id="main-model-viewer"
                 src="MiObjeto3D.glb" 
                 ios-src="MiObjeto3D.usdz"
                 ar 
@@ -155,35 +183,76 @@
 
         <div id="qr-section">
             <p style="margin: 0; font-weight: 600;">¿Quieres probar la Realidad Aumentada?</p>
-            <p style="margin: 5px 0; font-size: 14px; color: #6e6e73;">Escanea este código con tu móvil:</p>
+            <p style="margin: 5px 0; font-size: 14px; color: var(--text-secondary);">Escanea este código con tu móvil:</p>
             <div id="qrcode"></div>
             <p id="current-url" style="font-size: 10px; color: #aeaeb2; margin-top: 10px;"></p>
         </div>
     </div>
 
     <script>
-        // Lógica para generar el QR basado en la URL que estés usando en el Mac
-        window.onload = function() {
-            var url = window.location.href;
+        document.addEventListener("DOMContentLoaded", () => {
+            initQRGenerator();
+            handleARIntent();
+        });
+
+        /**
+         * Genera el QR inyectando el parámetro '?ar=true'
+         */
+        function initQRGenerator() {
+            // Utilizamos la API nativa de URL para manipular los parámetros limpiamente
+            const currentUrl = new URL(window.location.href);
+            currentUrl.searchParams.set('ar', 'true'); // Añadimos la bandera AR
             
-            // Si la URL es localhost, avisamos al usuario
-            if (url.includes("localhost") || url.includes("127.0.0.1")) {
-                document.getElementById("current-url").innerText = "⚠️ ESTÁS USANDO LOCALHOST. Usa la IP de tu Mac para que el móvil pueda entrar.";
-                document.getElementById("current-url").style.color = "red";
+            const urlString = currentUrl.toString();
+            const urlDisplay = document.getElementById("current-url");
+            
+            // Validar entorno de red
+            const hostname = window.location.hostname;
+            if (hostname === "localhost" || hostname === "127.0.0.1") {
+                urlDisplay.innerText = "⚠️ ESTÁS USANDO LOCALHOST. Usa la IP local de tu Mac (ej. 192.168.x.x) para que el móvil pueda acceder.";
+                urlDisplay.style.color = "red";
             } else {
-                document.getElementById("current-url").innerText = "URL detectada: " + url;
+                urlDisplay.innerText = "URL detectada: " + window.location.hostname;
             }
 
-            // Crear el código QR
+            // Crear código QR
             new QRCode(document.getElementById("qrcode"), {
-                text: url,
+                text: urlString,
                 width: 140,
                 height: 140,
                 colorDark : "#000000",
                 colorLight : "#ffffff",
                 correctLevel : QRCode.CorrectLevel.H
             });
-        };
+        }
+
+        /**
+         * Detecta si el móvil entró mediante el código QR e inicializa la lógica AR
+         */
+        function handleARIntent() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const isARIntent = urlParams.get('ar') === 'true';
+            
+            if (isARIntent) {
+                const overlay = document.getElementById('ar-overlay');
+                const modelViewer = document.getElementById('main-model-viewer');
+
+                // Mostramos la cortina que capturará el toque del usuario
+                overlay.style.display = 'flex';
+
+                // Al hacer clic/tap en cualquier parte del overlay, lanzamos el AR y ocultamos el overlay
+                overlay.addEventListener('click', async () => {
+                    overlay.style.display = 'none';
+                    try {
+                        // El método activateAR() abre la vista nativa del móvil (Quick Look o Scene Viewer)
+                        await modelViewer.activateAR();
+                    } catch (error) {
+                        console.error("Error al iniciar AR:", error);
+                        alert("No se pudo iniciar la Realidad Aumentada en este dispositivo.");
+                    }
+                });
+            }
+        }
     </script>
 </body>
 </html>
